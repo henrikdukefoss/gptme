@@ -2985,6 +2985,66 @@ def test_provider_config_save_load_roundtrip_non_ascii_name(tmp_path, monkeypatc
     assert loaded.providers[0].base_url == "http://localhost:9999/v1"
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="gptme/gptme#4806 — inline Array is not normalized before append",
+)
+def test_provider_config_save_load_roundtrip_inline_array(tmp_path, monkeypatch):
+    """Adding a provider to a config that already has an inline-array providers key survives load.
+
+    Reproduces the gptme#4806 failure: when providers = [{...}] is already written as
+    an inline Array, save_provider_config casts it to AoT which corrupts the TOML file.
+    """
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        'providers = [{name = "existing", base_url = "http://existing/v1"}]\n'
+    )
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    user_mod.save_provider_config(
+        ProviderConfig(name="new", base_url="http://new/v1"),
+        reload=False,
+    )
+
+    loaded = load_user_config(str(config_file))
+    assert loaded.providers is not None
+    assert len(loaded.providers) == 2
+    names = {p.name for p in loaded.providers}
+    assert names == {"existing", "new"}
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="gptme/gptme#4806 — inline Array is not normalized before append",
+)
+def test_provider_config_save_load_roundtrip_empty_array(tmp_path, monkeypatch):
+    """Adding a provider to a config with providers = [] (empty inline array) survives load.
+
+    Reproduces the exact gptme#4806 failure path: the first no-key custom-provider
+    setup writes providers = [], and a later save_provider_config corrupts the file.
+    """
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("providers = []\n")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    user_mod.save_provider_config(
+        ProviderConfig(name="local", base_url="http://localhost:11434/v1"),
+        reload=False,
+    )
+
+    loaded = load_user_config(str(config_file))
+    assert loaded.providers is not None
+    assert len(loaded.providers) == 1
+    assert loaded.providers[0].name == "local"
+    assert loaded.providers[0].base_url == "http://localhost:11434/v1"
+
+
 def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_symlinks):
     """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
     logdir = tmp_path / "conversation-save-transition"
